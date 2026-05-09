@@ -1,0 +1,2 @@
+Given a claim and evidence URLs, determine if the claim is true or false.
+Return JSON with verdict, confidence, and sources.

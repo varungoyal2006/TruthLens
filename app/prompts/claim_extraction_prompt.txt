@@ -1,0 +1,1 @@
+Extract all factual claims from this transcript in JSON format.
