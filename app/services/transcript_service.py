@@ -1,9 +1,15 @@
-class TranscriptService:
-    def __init__(self, api_key: str = None):
-        # Optional: store API key or client instance
-        self.api_key = api_key
+# class TranscriptService:
+#     def __init__(self, api_key=None):
+#         self.api_key = api_key  # optional, for external AI service
 
-    def extract_transcript(self, video_url: str) -> str:
-        # Replace this with actual Whisper / AWS Transcribe logic
-        transcript = "Dummy transcript for MVP"
-        return transcript
+#     def extract_transcript(self, video_path: str) -> str:
+#         """
+#         Input: local video path (str)
+#         Output: transcript text (str)
+#         """
+#         # MVP placeholder
+#         transcript = "Dummy transcript for MVP"
+#         return transcript
+    
+#     Input: video_path (string)
+# Output: transcript (string)
