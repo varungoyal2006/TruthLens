@@ -14,6 +14,9 @@ class TruthLensState(TypedDict):
     # Input YouTube URL
     video_url: str
 
+    # Paths to downloaded audio chunks (replaces single audio_path)
+    chunk_paths: List[str]
+
     # Downloaded audio path
     audio_path: str
 
