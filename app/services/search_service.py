@@ -34,6 +34,9 @@ from typing import List, Dict
 from concurrent.futures import ThreadPoolExecutor, as_completed 
 from tavily import TavilyClient 
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # Set up logging for this module
 logger = logging.getLogger(__name__)
 
@@ -91,13 +94,12 @@ class SearchService:
               include_answer=False, 
               include_raw_content=False 
           ) 
-
           # Extract and format the specific fields we care about
           evidence_list = [ 
               {
                   "title": result.get("title", ""), 
                   "url": result.get("url", ""), 
-                  "snippet": result.get("snippet", "") 
+                  "snippet": result.get("content", "") 
               }
               for result in response.get("results", [])
           ]
@@ -153,3 +155,10 @@ class SearchService:
               results[claim] = evidence
 
       return results
+
+
+if __name__ == "__main__": 
+    search = SearchService()
+    claims=["Obsession is not a good movie", "Weapons is not a good movie"] 
+    results = search.search_evidence(claims=claims)
+    print(results)

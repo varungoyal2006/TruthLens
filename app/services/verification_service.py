@@ -1,4 +1,4 @@
-```python
+
 """
 Verification Service Module
 
@@ -42,7 +42,7 @@ class VerificationService:
     def __init__(
         self,
         api_key: str = None,
-        model: str = "llama3-70b-8192"
+        model: str = "llama-3.1-8b-instant"
     ):
         """
         Initialize Groq client.
@@ -219,4 +219,4 @@ if __name__ == "__main__":
     )
 
     print(result)
-```
+

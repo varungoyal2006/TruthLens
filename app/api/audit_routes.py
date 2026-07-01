@@ -20,3 +20,4 @@
 # def get_report():
 #     return {"message": "TruthLens API Running!"}
 def get_report(): 
+  

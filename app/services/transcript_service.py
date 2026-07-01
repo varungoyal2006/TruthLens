@@ -306,3 +306,4 @@ if __name__ == "__main__":
     ]
     result = service.extract_transcript_from_chunks(chunks)
     print("Chunked:", result["transcript"][:200])
+

@@ -12,7 +12,7 @@ class ClaimService:
     """
     Service to extract factual, verifiable claims from transcripts using Groq's high-speed LLMs.
     """
-    def __init__(self, api_key: str = None, model: str = "llama3-70b-8192"):
+    def __init__(self, api_key: str = None, model: str = "llama-3.1-8b-instant"):
         """
         Initializes the ClaimService with a Groq API key and model choice.
         

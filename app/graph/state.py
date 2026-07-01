@@ -1,4 +1,3 @@
-```python
 """
 Shared workflow state for TruthLens.
 
@@ -37,4 +36,4 @@ class TruthLensState(TypedDict):
 
     # Error tracking
     error: str
-```
+
