@@ -91,7 +91,7 @@ class SearchService:
               query=claim, 
               search_depth='advanced', 
               max_results=3, 
-              include_answer=False, 
+              include_answer=True,
               include_raw_content=False 
           ) 
           # Extract and format the specific fields we care about

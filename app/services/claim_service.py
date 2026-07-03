@@ -42,17 +42,34 @@ class ClaimService:
 
         # For Groq's JSON mode to work, the word "JSON" MUST be in the prompt.
         prompt = f"""
-        Analyze the following transcript and extract the core factual, verifiable claims being made.
-        Ignore opinions, greetings, and filler text. 
-        
+        Analyze the following transcript and extract the core factual, verifiable claims being made. 
+        Ignore subjective opinions, conversational banter, greetings, and filler text.
+
+        For each extracted claim, you must perform two steps:
+        1. Contextual Resolution: Rewrite the claim to be entirely self-contained. Replace vague nouns, 
+           brand items, or pronouns (e.g., "it", "he", "the sandwich") with their explicit names derived 
+           from the transcript context so that the claim makes absolute sense on its own.
+        2. Search Query Optimization: Create a highly specific, keyword-optimized search engine query 
+           designed to find verification evidence. Append explicit anchoring context (like the restaurant, 
+           brand, or full industry name) to prevent semantic confusion (e.g., mixing up fast food items with sports/finance).
+
         You must return your response as a valid JSON object containing a single key called "claims" 
-        which maps to an array of strings.
-        
+        which maps to an array of objects.
+
         Example Output:
         {{
-            "claims": ["5G causes cancer", "NASA confirmed aliens"]
+            "claims": [
+                {{
+                    "claim": "The 'Shaq Attack' chicken sandwich at Big Chicken costs $9.91 after tax.",
+                    "search_query": "Big Chicken restaurant Shaq Attack sandwich menu price after tax"
+                }},
+                {{
+                    "claim": "McDonald's edamame-shaped novelty fries are manufactured to be completely hollow on the inside.",
+                    "search_query": "McDonalds edamame shaped hollow fries internal texture structure"
+                }}
+            ]
         }}
-        
+
         Transcript:
         {transcript}
         """
