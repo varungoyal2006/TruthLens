@@ -1,363 +1,237 @@
 """
 YouTube Service Module
 
-This module provides functionality for:
-
-1. Validating YouTube URLs
-2. Fetching video metadata
-3. Downloading audio for transcript generation
-4. Splitting long audio into chunks for Groq Whisper (25MB limit)
-
-Workflow:
-
-YouTube URL
-      ↓
-YoutubeService
-      ↓
-audio.mp3  ──(if long)──►  [chunk_0.mp3, chunk_1.mp3, ...]
-      ↓
-TranscriptService
-      ↓
-Groq Whisper
+This module provides functionality for interacting with YouTube, including:
+1. Fetching video metadata without downloading.
+2. Downloading audio tracks and automatically bypassing with local files if available.
+3. Splitting large audio files into smaller chunks (via ffmpeg) for LLM processing limits.
+4. Cleaning up ephemeral audio chunks after processing.
 """
 
 import os
 import logging
 import subprocess
+import yt_dlp
+import sys
 from typing import Dict, Any, List
 
-import yt_dlp
-
+# Initialize logger for this specific module
 logger = logging.getLogger(__name__)
 
-# Groq Whisper hard limit is 25 MB.
-# We target 10-minute chunks (~10 MB at 128kbps) to stay well under it.
-DEFAULT_CHUNK_SECONDS = 600   # 10 minutes
-DEFAULT_OUTPUT_DIR    = "audio_chunks"
+# Constants for audio processing
+DEFAULT_CHUNK_SECONDS = 600
+
+# Path resolution for the 12-Factor App structure
+PROJECT_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+AUDIO_OUTPUT_DIR = os.path.join(PROJECT_ROOT, "tmp", "audio_chunks")
+DEFAULT_SECRETS_DIR = os.path.join(PROJECT_ROOT, "tmp", "secrets")
 
 
 class YoutubeService:
     """
-    Service for handling YouTube videos.
+    A service class to handle YouTube metadata extraction, audio downloading, 
+    and ffmpeg-based chunking for downstream transcription pipelines.
     """
 
     def __init__(self):
+        """Initializes the YoutubeService and logs the instantiation."""
         logger.info("YoutubeService initialized.")
 
-    # ------------------------------------------------------------------
-    # Public: video metadata
-    # ------------------------------------------------------------------
-
-    def get_video_info(
-        self,
-        video_url: str
-    ) -> Dict[str, Any]:
+    def get_video_info(self, video_url: str) -> Dict[str, Any]:
         """
-        Retrieve video metadata without downloading.
+        Retrieves the metadata of a YouTube video without downloading the actual content.
 
         Args:
-            video_url (str): YouTube URL
+            video_url (str): The standard URL of the YouTube video.
 
         Returns:
-            Dict containing metadata.
+            Dict[str, Any]: A dictionary containing the extraction status and video details 
+                            (title, channel, duration, video_id, webpage_url).
         """
-
         try:
-
-            ydl_opts = {
+            ydl_params = {
                 "quiet": True,
                 "skip_download": True
             }
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-
-                info = ydl.extract_info(
-                    video_url,
-                    download=False
-                )
+            with yt_dlp.YoutubeDL(ydl_params) as ydl:
+                info = ydl.extract_info(video_url, download=False)
 
             return {
-                "status":      "success",
-                "title":       info.get("title"),
-                "channel":     info.get("uploader"),
-                "duration":    info.get("duration"),
-                "video_id":    info.get("id"),
+                "status": "success",
+                "title": info.get("title"),
+                "channel": info.get("uploader"),
+                "duration": info.get("duration"),
+                "video_id": info.get("id"),
                 "webpage_url": info.get("webpage_url")
             }
 
         except Exception as error:
-
-            logger.error(
-                f"Failed to fetch video info: {str(error)}"
-            )
-
+            logger.error(f"Failed to fetch video info: {str(error)}")
             return {
-                "status":  "error",
+                "status": "error",
                 "message": str(error)
             }
-
-    # ------------------------------------------------------------------
-    # Public: download full audio (kept for short videos / backwards compat)
-    # ------------------------------------------------------------------
-
-    def download_audio(
-        self,
-        video_url: str,
-        output_path: str = "temp_audio.%(ext)s"
-    ) -> Dict[str, str]:
-        """
-        Download audio from a YouTube video as a single MP3.
-
-        For videos longer than ~10 minutes prefer download_audio_chunks()
-        to stay within Groq Whisper's 25 MB file-size limit.
-
-        Args:
-            video_url (str):   YouTube URL
-            output_path (str): yt-dlp output template
-
-        Returns:
-            {
-                "status":     "success",
-                "video_url":  "...",
-                "audio_path": "temp_audio.mp3"
-            }
-        """
-
-        try:
-
-            logger.info(
-                f"Starting audio download: {video_url}"
-            )
-
-            ydl_opts = {
-                "format":     "bestaudio/best",
-                "outtmpl":    output_path,
-                "quiet":      True,
-                "noplaylist": True,
-                "postprocessors": [
-                    {
-                        "key":              "FFmpegExtractAudio",
-                        "preferredcodec":   "mp3",
-                        "preferredquality": "128"
-                    }
-                ]
-            }
-
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([video_url])
-
-            audio_file = "temp_audio.mp3"
-
-            logger.info("Audio download completed successfully.")
-
-            return {
-                "status":     "success",
-                "video_url":  video_url,
-                "audio_path": audio_file
-            }
-
-        except Exception as error:
-
-            logger.error(f"Audio download failed: {str(error)}")
-
-            return {
-                "status":  "error",
-                "message": str(error)
-            }
-
-    # ------------------------------------------------------------------
-    # Public: download + split into chunks  ← NEW
-    # ------------------------------------------------------------------
 
     def download_audio_chunks(
-        self,
-        video_url: str,
-        chunk_seconds: int = DEFAULT_CHUNK_SECONDS,
-        output_dir: str   = DEFAULT_OUTPUT_DIR
+        self, 
+        video_url: str, 
+        chunk_seconds: int = DEFAULT_CHUNK_SECONDS, 
+        output_dir: str = AUDIO_OUTPUT_DIR
     ) -> Dict[str, Any]:
         """
-        Download a YouTube video's audio and split it into fixed-length
-        MP3 chunks so each file stays under Groq Whisper's 25 MB limit.
-
-        Steps:
-            1. Download the full audio as a single MP3 via yt-dlp.
-            2. Use ffmpeg to split it into <chunk_seconds>-long segments.
-            3. Delete the full MP3 (only chunks are kept).
+        Downloads the best available audio from a YouTube video and splits it into smaller chunks using ffmpeg.
+        If a file named 'full_audio.mp3' already exists in the output directory, the yt-dlp download 
+        is bypassed and the existing file is split instead.
 
         Args:
-            video_url     (str): YouTube URL.
-            chunk_seconds (int): Length of each chunk in seconds (default 600 = 10 min).
-            output_dir    (str): Directory where chunk files are written.
+            video_url (str): The URL of the YouTube video.
+            chunk_seconds (int, optional): The length of each split audio chunk in seconds. Defaults to 600.
+            output_dir (str, optional): The directory where audio chunks should be saved. Defaults to AUDIO_OUTPUT_DIR.
 
         Returns:
-            {
-                "status":      "success",
-                "video_url":   "...",
-                "chunk_paths": ["audio_chunks/chunk_000.mp3", ...]
-            }
-
-            OR
-
-            {
-                "status":  "error",
-                "message": "..."
-            }
+            Dict[str, Any]: A dictionary containing the status, the original video URL, 
+                            and a list of absolute paths to the generated audio chunks.
         """
-
         os.makedirs(output_dir, exist_ok=True)
-        full_audio_path = os.path.join(output_dir, "full_audio.mp3")
+        
+        # The base name for yt-dlp (NO EXTENSION)
+        base_dl_path = os.path.join(output_dir, "full_audio")
+        # The final expected file AFTER ffmpeg post-processing adds the extension
+        final_mp3_path = f"{base_dl_path}.mp3"
 
         try:
+            # Step 1: Download or Bypass using the FINAL .mp3 path check
+            if os.path.exists(final_mp3_path):
+                logger.info(f"🚀 Manual bypass: Found existing audio at {final_mp3_path}. Skipping download.")
+            else:
+                cookies_path = os.path.join(DEFAULT_SECRETS_DIR, "youtube_cookies.txt")
+                logger.info(f"Downloading audio for URL: {video_url}")
 
-            # ── Step 1: download full audio ────────────────────────────
-
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            cookies_path = os.path.join(current_dir, "youtube_cookies.txt")
-
-            logger.info(f"Downloading audio for: {video_url}")
-
-            ydl_opts = {
-                "format": "bestaudio/best",
-                "outtmpl": os.path.join(output_dir, "full_audio.%(ext)s"),
-                "quiet": True,
-                "noplaylist": True,
-                'cookies_from_browser': 'edge',
-                # Emulate a real desktop browser request to minimize 429 risks
-                "cookiefile" : cookies_path,
-                "http_headers": {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edge/120.0.0.0",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.5",
-                },
-                "postprocessors": [
-                    {
+                yt_dlp_params = {
+                    "format": "bestaudio/best",
+                    "outtmpl": base_dl_path,  # Passed without .mp3 so the postprocessor appends it cleanly
+                    "quiet": False,
+                    "noplaylist": True,
+                    "cookiefile": cookies_path if os.path.exists(cookies_path) else None,
+                    "http_headers": {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Accept-Language": "en-US,en;q=0.5",
+                    },
+                    "postprocessors": [{
                         "key": "FFmpegExtractAudio",
                         "preferredcodec": "mp3",
                         "preferredquality": "128"
-                    }
-                ]
-            }
+                    }]
+                }
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([video_url])
+                with yt_dlp.YoutubeDL(yt_dlp_params) as ydl:
+                    ydl.download([video_url])
 
-            if not os.path.exists(full_audio_path):
-                raise FileNotFoundError(
-                    f"Expected full audio at {full_audio_path} but file was not found."
-                )
+            # Ensure the final .mp3 file actually exists before attempting to split
+            if not os.path.exists(final_mp3_path):
+                raise FileNotFoundError(f"Expected full audio at {final_mp3_path} but file was not found.")
 
-            logger.info("Full audio downloaded successfully.")
-
-            # ── Step 2: split with ffmpeg ──────────────────────────────
+            # Step 2: Split the audio into chunks using ffmpeg
             chunk_pattern = os.path.join(output_dir, "chunk_%03d.mp3")
-
-            logger.info(
-                f"Splitting audio into {chunk_seconds}s chunks …"
-            )
+            logger.info(f"Splitting the audio into {chunk_seconds}s chunks...")
 
             split_cmd = [
                 "ffmpeg",
-                "-y",                          # overwrite without asking
-                "-i", full_audio_path,
+                "-y",
+                "-i", final_mp3_path,
                 "-f", "segment",
                 "-segment_time", str(chunk_seconds),
-                "-c", "copy",                  # no re-encode → fast
+                "-c", "copy",
                 "-reset_timestamps", "1",
                 chunk_pattern
             ]
 
-            result = subprocess.run(
-                split_cmd,
-                capture_output=True,
-                text=True
-            )
+            result = subprocess.run(split_cmd, capture_output=True, text=True)
 
             if result.returncode != 0:
-                raise RuntimeError(
-                    f"ffmpeg split failed:\n{result.stderr}"
-                )
+                raise RuntimeError(f"ffmpeg split failed:\n{result.stderr}")
 
-            # ── Step 3: collect chunk paths ────────────────────────────
+            # Step 3: Collect the generated chunk paths
             chunk_paths: List[str] = sorted(
                 os.path.join(output_dir, f)
                 for f in os.listdir(output_dir)
-                if f.startswith("chunk_") and f.endswith(".mp3")
+                if (f.startswith("chunk_") and f.endswith(".mp3"))
             )
 
             if not chunk_paths:
-                raise RuntimeError(
-                    "ffmpeg ran without error but produced no chunk files."
-                )
+                raise RuntimeError("ffmpeg ran without error but produced no chunk files.")
 
             logger.info(
-                f"Audio split into {len(chunk_paths)} chunk(s): "
-                + ", ".join(os.path.basename(p) for p in chunk_paths)
+                f"Audio split into {len(chunk_paths)} chunks(s): " +
+                ", ".join(os.path.basename(p) for p in chunk_paths)
             )
 
-            # ── Step 4: remove full audio to save disk space ───────────
-            os.remove(full_audio_path)
+            # Step 4: Cleanup the large source file to save space
+            os.remove(final_mp3_path)
             logger.info("Removed full audio file after chunking.")
 
             return {
-                "status":      "success",
-                "video_url":   video_url,
+                "status": "success",
+                "video_url": video_url,
                 "chunk_paths": chunk_paths
             }
 
         except Exception as error:
-
-            logger.error(f"Audio chunking failed: {str(error)}")
-
-            # Clean up partial full-audio file if it exists
-            if os.path.exists(full_audio_path):
-                try:
-                    os.remove(full_audio_path)
-                except OSError:
-                    pass
-
+            logger.error(f"Failed to download or chunk the video: {str(error)}")
             return {
-                "status":  "error",
+                "status": "error",
                 "message": str(error)
             }
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def cleanup_chunks(self, output_dir: str = DEFAULT_OUTPUT_DIR) -> None:
+    def cleanup_chunks(self, output_dir: str = AUDIO_OUTPUT_DIR) -> None:
         """
-        Delete all chunk MP3 files from output_dir after processing.
-        Call this once TranscriptService has finished with the chunks.
+        Deletes all temporary mp3 chunk files from the specified output directory.
+        Should be called after the TranscriptService has finished transcribing.
+
+        Args:
+            output_dir (str, optional): The directory to clean up. Defaults to AUDIO_OUTPUT_DIR.
         """
+        count = 0
+        if not os.path.exists(output_dir):
+            return
+            
+        for file in os.listdir(output_dir):
+            if file.startswith("chunk_") and file.endswith(".mp3"):
+                os.remove(os.path.join(output_dir, file))
+                count += 1
 
-        removed = 0
+        logger.info(f"Cleanup complete. Total chunks removed: {count}")
 
-        for fname in os.listdir(output_dir):
-            if fname.startswith("chunk_") and fname.endswith(".mp3"):
-                try:
-                    os.remove(os.path.join(output_dir, fname))
-                    removed += 1
-                except OSError as e:
-                    logger.warning(f"Could not remove {fname}: {e}")
 
-        logger.info(f"Cleaned up {removed} chunk file(s) from {output_dir}.")
+def setup_logging():
+    """
+    Configures the root logger for the entire application, establishing a standard 
+    format that includes timestamps, file locations, line numbers, and function names.
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - [%(filename)s:%(lineno)d] - %(funcName)s() - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)]
+    )
 
 
 # ==========================================
-# Example Usage
+# Developer Testing Block
 # ==========================================
-
 if __name__ == "__main__":
-
-    service = YoutubeService()
-
-    url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-
-    # Metadata only
-    info = service.get_video_info(url)
-    print("Video info:", info)
-
-    # Download + split into 10-min chunks
-    result = service.download_audio_chunks(url, chunk_seconds=600)
-    print("Chunk result:", result)
-
+    setup_logging()
+    
+    yt = YoutubeService()
+    
+    # Test metadata fetching
+    info = yt.get_video_info(video_url="https://www.youtube.com/watch?v=Y3EPQcWiXF8")
+    print("Metadata Output:", info, "\n\n")
+    
+    # Test downloading and chunking
+    result = yt.download_audio_chunks(video_url="https://www.youtube.com/watch?v=Y3EPQcWiXF8")
+    print("Chunking Output:", result)
+    
+    # Optional: Test cleanup (Uncomment to test)
+    # yt.cleanup_chunks()
