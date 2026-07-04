@@ -16,8 +16,8 @@ Chunked video flow (long videos):
 from app.graph.state import TruthLensState
 
 from app.services.youtube_service     import YoutubeService
-from app.services.transcript_service  import TranscriptService
-from app.services.claim_service       import ClaimService
+from app.services.tanscript  import TranscriptService
+from app.services.claim       import ClaimService
 from app.services.search_service      import SearchService
 from app.services.verification_service import VerificationService
 from app.services.report_service      import ReportService
