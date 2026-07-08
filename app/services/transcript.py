@@ -80,7 +80,7 @@ class TransScriptService:
 
     def extract_transcript_from_chunks(
         self,
-        chunk_path: List[str],
+        chunk_paths: List[str],
         max_worker: int = 3,
     ) -> Dict[str, Any]:
         """
@@ -97,7 +97,7 @@ class TransScriptService:
             Combined transcript in the correct order.
         """
 
-        if not chunk_path:
+        if not chunk_paths:
             return {
                 "status": "error",
                 "message": "No chunk paths provided.",
@@ -120,7 +120,7 @@ class TransScriptService:
                     path,
                     idx,
                 ): idx
-                for idx, path in enumerate(chunk_path)
+                for idx, path in enumerate(chunk_paths)
             }
 
             # Process completed transcriptions.
@@ -156,7 +156,7 @@ class TransScriptService:
 
         return {
             "status": "success",
-            "total_chunks": len(chunk_path),
+            "total_chunks": len(chunk_paths),
             "failed_chunks": len(errors),
             "transcript": merged_transcript,
         }
