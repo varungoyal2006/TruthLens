@@ -1,13 +1,34 @@
-# # Purpose: Entry point of FastAPI backend. Connects all routes and starts the server.
+import logging 
+import sys 
+from fastapi import FastAPI 
+from fastapi.middleware.cors import CORSMiddleware
+from app.core.config import settings 
+from app.core.logger import setup_logging
 
-# from fastapi import FastAPI
-# from app.api.audit_routes import router as audit_router
+from app.api import health, audit
 
-# app = FastAPI(title="TruthLens API")
+setup_logging() 
 
-# # Include API routes
-# app.include_router(audit_router, prefix="/audit")
+logger = logging.getLogger(__name__)
 
-# @app.get("/")
-# def root():
-#     return {"message": "TruthLens API Running!"}
+app = FastAPI(
+  title=settings.PROJECT_NAME, 
+  description="Agentic RAG pipeline for automated video claim verification.", 
+  version='1.0.0', 
+  docs_url="/docs",
+  redoc_url="/redoc",
+)
+
+app.add_middleware(
+  CORSMiddleware, 
+  allow_origins=["*"],
+  allow_credentials=True, 
+  allow_methods=["*"], 
+  allow_headers=["*"], 
+)
+
+app.include_router(health.router, tags=["Sustem Health"])
+
+app.include_router(audit.router, prefix=settings.API_V1_STR, tags=['Verification Core'])
+
+logging.info("TruthLens FastAPI server initialized and ready for connections.")
