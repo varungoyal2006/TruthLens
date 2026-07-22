@@ -8,7 +8,6 @@ Orchestrates the hybrid knowledge retrieval pipeline for TruthLens:
 4. Distributes query requests to Tavily Web Search fallback when local data is missing or weak.
 """
 
-import os
 import logging
 import hashlib
 from typing import List, Dict, Any, Tuple 

@@ -11,7 +11,7 @@ import os
 import json 
 import logging 
 import sys
-from typing import List, Dict, Any 
+from typing import List, Dict
 
 from groq import Groq 
 from dotenv import load_dotenv 

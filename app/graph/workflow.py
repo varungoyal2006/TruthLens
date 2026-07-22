@@ -8,7 +8,6 @@ to handle pipeline errors gracefully and prevent cascade failures.
 
 import logging
 import json
-import sys
 
 from app.core.logger import setup_logging
 
@@ -34,7 +33,7 @@ def route_on_error(state: TruthLensState) -> str:
     the graph directly to the END node.
     """
     if state.get("error"):
-        logger.warning(f"Graph Router detected an error state. Short-circuiting to END.")
+        logger.warning("Graph Router detected an error state. Short-circuiting to END.")
         return "error_detected"
     return "continue"
 

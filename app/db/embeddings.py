@@ -100,7 +100,7 @@ if __name__ == "__main__":
         test_text = "TruthLens dynamic Google RAG routing engine verification loop."
         
         vector = engine.get_embedding(test_text)
-        print(f"\n✅ Success! Google embedding generated.")
+        print("\n✅ Success! Google embedding generated.")
         print(f"Vector Dimension Count: {len(vector)}")
         print(f"Sample preview (First 5 values): {vector[:5]}\n")
         

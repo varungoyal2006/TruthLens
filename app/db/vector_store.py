@@ -8,7 +8,7 @@ vector query similarity scoring, and context upsertions.
 import os
 import logging
 import sys
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 import json
 import chromadb
 
