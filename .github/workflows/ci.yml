@@ -1,46 +1,51 @@
-name : TruthLens CI Pipeline 
+name: TruthLens CI Pipeline
 
-on: 
-  push: 
-    branches: ["main"]
-  pull_requests: 
+on:
+  push:
     branches: ["main"]
 
-jobs: 
-  validate-and-test: 
-    name: Build & Validate 
-    runs-on: ubuntu-latest 
+  pull_request:
+    branches: ["main"]
 
-    steps: 
-    - name : Checkout Code 
-      uses: actions/checkout@v4 
+jobs:
+  validate-and-test:
+    name: Build & Validate
+    runs-on: ubuntu-latest
 
-    - name: Setup uv 
-      uses: astra-sh/setup-uv@v3 
-      with: 
-        enable-cache: true 
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Setup Python 3.12 
-      uses: actions/setup-python@v5 
-      with: 
-        python-version: "3.12"
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
 
-    - name: Install Dependencies
-      run: | 
-        uv sync
-        uv add ruff pytest httpx 
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-    - name: Lint Code with Ruff 
-      run: | 
-        uv run ruff check . 
+      - name: Install Dependencies
+        run: |
+          uv sync
+          uv add ruff pytest httpx uvicorn
 
-    - name: FastAPI Boot Check
-      env: 
-        GROQ_API_KEY: "dummy_key"
-        TAVILY_API_KEY: "dummy_key"
-        GOOGLE_API_KEY: "dummy_key"   
-      run: | 
-        uv run unvicorn app.main:app --port 8000 & 
-        sleep 3 
+      - name: Lint Code with Ruff
+        run: |
+          uv run ruff check .
 
-        curl -f http://127.0.0.1:8000/health || exit 1 
+      - name: FastAPI Boot Check
+        env:
+          GROQ_API_KEY: dummy_key
+          TAVILY_API_KEY: dummy_key
+          GOOGLE_API_KEY: dummy_key
+        run: |
+          uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+
+          for i in {1..10}; do
+            curl -fs http://127.0.0.1:8000/health && break
+            sleep 2
+          done
+
+          curl -f http://127.0.0.1:8000/health
