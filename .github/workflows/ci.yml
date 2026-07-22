@@ -42,6 +42,7 @@ jobs:
           GOOGLE_API_KEY: dummy_key
         run: |
           uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+          SERVER_PID=$!
 
           for i in {1..10}; do
             curl -fs http://127.0.0.1:8000/health && break
@@ -49,3 +50,5 @@ jobs:
           done
 
           curl -f http://127.0.0.1:8000/health
+
+          kill $SERVER_PID
